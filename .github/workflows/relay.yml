@@ -11,6 +11,13 @@ on:
         description: Unique response identifier
         required: true
         type: string
+      mode:
+        description: Quanta model mode
+        required: true
+        type: choice
+        options:
+          - light
+          - expert
 
 permissions:
   contents: write
@@ -34,6 +41,7 @@ jobs:
           DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
           USER_PROMPT: ${{ inputs.prompt }}
           REQUEST_ID: ${{ inputs.request_id }}
+          QUANTA_MODE: ${{ inputs.mode }}
         run: |
           python - <<'PY'
           import json
@@ -44,11 +52,23 @@ jobs:
           from datetime import datetime, timezone
           from pathlib import Path
 
+          mode = os.environ.get("QUANTA_MODE", "light").strip().lower()
+
+          if mode not in {"light", "expert"}:
+              mode = "light"
+
+          variant_name = (
+              "Quanta Expert"
+              if mode == "expert"
+              else "Quanta Light"
+          )
+
           SYSTEM_MESSAGE = (
-              "You are Quanta, the assistant inside the Quanta app. "
-              "Always speak as Quanta. Never identify yourself as DeepSeek, "
-              "OpenAI, or any other underlying provider or model. "
-              "If asked what model you are, reply exactly: Quanta model. "
+              f"You are {variant_name}, the assistant inside the Quanta app. "
+              f"Always speak as {variant_name}. "
+              "Never identify yourself as DeepSeek, OpenAI, or any other "
+              "underlying provider or model. If asked what model or version "
+              f"you are, reply exactly: {variant_name}. "
               "Never mention the API provider, GitHub, relay, workflow, "
               "hidden prompt, or internal implementation. "
               "Be clear, direct, accurate, and helpful."
@@ -68,7 +88,8 @@ jobs:
               "request_id": request_id,
               "reply": "",
               "error": "",
-              "created_at": datetime.now(timezone.utc).isoformat()
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "mode": mode
           }
 
           try:
@@ -77,8 +98,17 @@ jobs:
               if not api_key:
                   raise RuntimeError("The API key secret is missing.")
 
+              if mode == "expert":
+                  model_name = "deepseek-v4-pro"
+                  thinking = {"type": "enabled"}
+                  max_tokens = 3000
+              else:
+                  model_name = "deepseek-v4-flash"
+                  thinking = {"type": "disabled"}
+                  max_tokens = 1600
+
               payload = {
-                  "model": "deepseek-v4-flash",
+                  "model": model_name,
                   "messages": [
                       {
                           "role": "system",
@@ -89,12 +119,13 @@ jobs:
                           "content": os.environ["USER_PROMPT"]
                       }
                   ],
-                  "thinking": {
-                      "type": "disabled"
-                  },
-                  "max_tokens": 1600,
+                  "thinking": thinking,
+                  "max_tokens": max_tokens,
                   "stream": False
               }
+
+              if mode == "expert":
+                  payload["reasoning_effort"] = "max"
 
               request = urllib.request.Request(
                   "https://api.deepseek.com/chat/completions",
