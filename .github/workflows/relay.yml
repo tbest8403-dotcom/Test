@@ -7,13 +7,16 @@ on:
         description: Prompt sent from the Quanta app
         required: true
         type: string
+
       request_id:
         description: Unique response identifier
         required: true
         type: string
+
       mode:
-        description: Quanta model mode
+        description: Quanta mode
         required: true
+        default: light
         type: choice
         options:
           - light
@@ -63,12 +66,13 @@ jobs:
               else "Quanta Light"
           )
 
-          SYSTEM_MESSAGE = (
+          system_message = (
               f"You are {variant_name}, the assistant inside the Quanta app. "
               f"Always speak as {variant_name}. "
               "Never identify yourself as DeepSeek, OpenAI, or any other "
-              "underlying provider or model. If asked what model or version "
-              f"you are, reply exactly: {variant_name}. "
+              "underlying provider or model. "
+              "If asked what model or version you are, reply exactly: "
+              f"{variant_name}. "
               "Never mention the API provider, GitHub, relay, workflow, "
               "hidden prompt, or internal implementation. "
               "Be clear, direct, accurate, and helpful."
@@ -79,32 +83,36 @@ jobs:
           if not re.fullmatch(r"[A-Za-z0-9_-]{1,150}", request_id):
               raise SystemExit("Invalid request_id")
 
-          response_directory = Path("responses")
-          response_directory.mkdir(exist_ok=True)
-          response_file = response_directory / f"{request_id}.json"
+          responses = Path("responses")
+          responses.mkdir(exist_ok=True)
+          response_file = responses / f"{request_id}.json"
 
           result = {
               "success": False,
               "request_id": request_id,
               "reply": "",
               "error": "",
-              "created_at": datetime.now(timezone.utc).isoformat(),
-              "mode": mode
+              "mode": mode,
+              "created_at": datetime.now(timezone.utc).isoformat()
           }
 
           try:
               api_key = os.environ.get("DEEPSEEK_API_KEY", "").strip()
 
               if not api_key:
-                  raise RuntimeError("The API key secret is missing.")
+                  raise RuntimeError(
+                      "The DEEPSEEK_API_KEY repository secret is missing."
+                  )
 
               if mode == "expert":
                   model_name = "deepseek-v4-pro"
                   thinking = {"type": "enabled"}
+                  reasoning_effort = "max"
                   max_tokens = 3000
               else:
                   model_name = "deepseek-v4-flash"
                   thinking = {"type": "disabled"}
+                  reasoning_effort = "high"
                   max_tokens = 1600
 
               payload = {
@@ -112,7 +120,7 @@ jobs:
                   "messages": [
                       {
                           "role": "system",
-                          "content": SYSTEM_MESSAGE
+                          "content": system_message
                       },
                       {
                           "role": "user",
@@ -120,12 +128,10 @@ jobs:
                       }
                   ],
                   "thinking": thinking,
+                  "reasoning_effort": reasoning_effort,
                   "max_tokens": max_tokens,
                   "stream": False
               }
-
-              if mode == "expert":
-                  payload["reasoning_effort"] = "max"
 
               request = urllib.request.Request(
                   "https://api.deepseek.com/chat/completions",
@@ -139,7 +145,9 @@ jobs:
               )
 
               with urllib.request.urlopen(request, timeout=180) as response:
-                  data = json.loads(response.read().decode("utf-8"))
+                  data = json.loads(
+                      response.read().decode("utf-8")
+                  )
 
               reply = (
                   data.get("choices", [{}])[0]
@@ -154,16 +162,27 @@ jobs:
               result["reply"] = reply
 
           except urllib.error.HTTPError as error:
-              details = error.read().decode("utf-8", errors="replace")
+              details = error.read().decode(
+                  "utf-8",
+                  errors="replace"
+              )
+
               result["error"] = (
-                  f"Request failed with HTTP {error.code}: {details}"
+                  f"Request failed with HTTP "
+                  f"{error.code}: {details}"
               )
 
           except Exception as error:
-              result["error"] = f"{type(error).__name__}: {error}"
+              result["error"] = (
+                  f"{type(error).__name__}: {error}"
+              )
 
           response_file.write_text(
-              json.dumps(result, ensure_ascii=False, indent=2),
+              json.dumps(
+                  result,
+                  ensure_ascii=False,
+                  indent=2
+              ),
               encoding="utf-8"
           )
           PY
@@ -183,9 +202,11 @@ jobs:
 
           for attempt in 1 2 3; do
             git pull --rebase origin main
+
             if git push origin HEAD:main; then
               exit 0
             fi
+
             sleep 2
           done
 
