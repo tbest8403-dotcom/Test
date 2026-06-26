@@ -104,19 +104,7 @@ jobs:
                       "The DEEPSEEK_API_KEY repository secret is missing."
                   )
 
-              if mode == "expert":
-                  model_name = "deepseek-v4-pro"
-                  thinking = {"type": "enabled"}
-                  reasoning_effort = "max"
-                  max_tokens = 3000
-              else:
-                  model_name = "deepseek-v4-flash"
-                  thinking = {"type": "disabled"}
-                  reasoning_effort = "high"
-                  max_tokens = 1600
-
               payload = {
-                  "model": model_name,
                   "messages": [
                       {
                           "role": "system",
@@ -127,11 +115,26 @@ jobs:
                           "content": os.environ["USER_PROMPT"]
                       }
                   ],
-                  "thinking": thinking,
-                  "reasoning_effort": reasoning_effort,
-                  "max_tokens": max_tokens,
                   "stream": False
               }
+
+              if mode == "expert":
+                  payload.update({
+                      "model": "deepseek-v4-pro",
+                      "thinking": {
+                          "type": "enabled"
+                      },
+                      "reasoning_effort": "max",
+                      "max_tokens": 3000
+                  })
+              else:
+                  payload.update({
+                      "model": "deepseek-v4-flash",
+                      "thinking": {
+                          "type": "disabled"
+                      },
+                      "max_tokens": 1600
+                  })
 
               request = urllib.request.Request(
                   "https://api.deepseek.com/chat/completions",
@@ -149,14 +152,20 @@ jobs:
                       response.read().decode("utf-8")
                   )
 
-              reply = (
-                  data.get("choices", [{}])[0]
-                  .get("message", {})
-                  .get("content", "")
-              )
+              choices = data.get("choices") or []
+
+              if not choices:
+                  raise RuntimeError(
+                      "The API returned no choices."
+                  )
+
+              message = choices[0].get("message") or {}
+              reply = message.get("content") or ""
 
               if not reply:
-                  raise RuntimeError("Quanta returned no reply.")
+                  raise RuntimeError(
+                      "Quanta returned no final reply."
+                  )
 
               result["success"] = True
               result["reply"] = reply
