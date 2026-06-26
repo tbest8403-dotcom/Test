@@ -1,0 +1,48 @@
+name: Relay Test
+
+on:
+  workflow_dispatch:
+    inputs:
+      message:
+        required: true
+        type: string
+      request_id:
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create response
+        env:
+          MESSAGE: ${{ inputs.message }}
+          REQUEST_ID: ${{ inputs.request_id }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+
+          result = {
+              "success": True,
+              "request_id": os.environ["REQUEST_ID"],
+              "reply": "GitHub received: " + os.environ["MESSAGE"]
+          }
+
+          with open("result.json", "w") as file:
+              json.dump(result, file)
+          PY
+
+      - name: Save response
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add result.json
+          git commit -m "Update relay response"
+          git push
